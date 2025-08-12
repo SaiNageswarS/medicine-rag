@@ -34,7 +34,10 @@ jobs:
 
       - name: Build all components
         run: |
-          cd core && ./build.sh
+          cd core
+          ls -l 
+          chmod +x build.sh 
+          ./build.sh
 
       - name: Move all binaries to ./release-bin
         run: |
