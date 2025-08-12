@@ -44,27 +44,14 @@ func NewSearchTool(chunkRepository odm.OdmCollectionInterface[db.ChunkModel], ve
 	}
 }
 
-func (s *SearchTool) Run(ctx context.Context, queries []string) <-chan *schema.ToolResultChunk {
+func (s *SearchTool) Run(ctx context.Context, query string) <-chan *schema.ToolResultChunk {
 	out := make(chan *schema.ToolResultChunk, 20)
 
 	go func() {
 		defer close(out)
 
-		hybridSearchTasks := make([]<-chan async.Result[[]*db.ChunkModel], 0, len(queries))
-
-		// 1. Perform hybrid search for each query
-		//    (text search + vector search)
-		for _, q := range queries {
-			if q == "" {
-				continue
-			}
-
-			hybridSearchTask := s.hybridSearch(ctx, q)
-			hybridSearchTasks = append(hybridSearchTasks, hybridSearchTask)
-		}
-
-		// 2. Collect results ranked by RRF score
-		hybridSearchResults, err := async.AwaitAll(hybridSearchTasks...)
+		// 1. Perform Hybrid Search and Collect results ranked by RRF score
+		rankedChunks, err := async.Await(s.hybridSearch(ctx, query))
 		if err != nil {
 			logger.Error("Failed to perform hybrid search", zap.Error(err))
 			out <- &schema.ToolResultChunk{
@@ -73,24 +60,7 @@ func (s *SearchTool) Run(ctx context.Context, queries []string) <-chan *schema.T
 			return
 		}
 
-		// 3. Flatten and deduplicate results
-		rankedChunks, err := linq.Pipe3(
-			linq.FromSlice(ctx, hybridSearchResults),
-			linq.Flatten[*db.ChunkModel](),
-			linq.Distinct(func(c *db.ChunkModel) string {
-				return c.ChunkID
-			}),
-			linq.ToSlice[*db.ChunkModel](),
-		)
-
-		if err != nil || len(rankedChunks) == 0 {
-			logger.Error("Failed to flatten and deduplicate search results", zap.Error(err))
-			out <- &schema.ToolResultChunk{
-				Error: err.Error(),
-			}
-			return
-		}
-
+		// 2. Group by section with adjoining chunks and rank
 		sectionChunks := GroupBySectionWithRank(rankedChunks)
 
 		_, err = linq.Pipe3(

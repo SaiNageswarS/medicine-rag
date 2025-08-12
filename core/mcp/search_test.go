@@ -1,7 +1,6 @@
 package mcp
 
 import (
-	"context"
 	"testing"
 
 	"github.com/SaiNageswarS/agent-boot/schema"
@@ -14,7 +13,9 @@ import (
 )
 
 func TestSearch(t *testing.T) {
-	dotenv.LoadEnv("../.env")
+	dotenv.LoadEnv("../../.env")
+
+	ctx := t.Context()
 
 	mongoClient := odm.ProvideMongoClient()
 	embedder := embed.ProvideJinaAIEmbeddingClient()
@@ -29,8 +30,7 @@ func TestSearch(t *testing.T) {
 		expectedChunkPrefixes := []string{"1544328200c1", "9a24dcec7d80"}
 
 		searchTool := NewSearchTool(chunkRepository, vectorRepository, embedder)
-		ctx := context.Background()
-		resultsChan := searchTool.Run(ctx, []string{testQuery})
+		resultsChan := searchTool.Run(ctx, testQuery)
 
 		// Collect all results from the channel
 		var searchResults []*schema.ToolResultChunk

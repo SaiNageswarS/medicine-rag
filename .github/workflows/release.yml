@@ -34,13 +34,12 @@ jobs:
 
       - name: Build all components
         run: |
-          cd proto        && ./build.sh
-          cd ../example && ./build.sh
+          cd core && ./build.sh
 
       - name: Move all binaries to ./release-bin
         run: |
           mkdir -p release-bin
-          mv example/build/* release-bin/
+          mv core/build/* release-bin/
           ls -lh release-bin
 
       - name: Upload Go artifacts

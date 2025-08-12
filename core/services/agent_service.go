@@ -37,11 +37,11 @@ func (s *AgentService) Execute(req *schema.GenerateAnswerRequest, stream grpc.Se
 
 	search := mcp.NewSearchTool(chunkRepository, vectorRepository, s.embedder)
 
-	mcp := agentboot.NewMCPToolBuilder("medicine-rag", "Search and retrieve medical information from the database for the user query.").
-		StringSliceParam("queries", "List of diverse queries to search for relevant medical information.", true).
+	mcp := agentboot.NewMCPToolBuilder("medicine-rag", "Search and retrieve medical information and remedies from the database for the user query.").
+		StringSliceParam("query", "Search Query to perform search", true).
 		WithHandler(func(ctx context.Context, params api.ToolCallFunctionArguments) <-chan *schema.ToolResultChunk {
-			queries := params["queries"].([]string)
-			return search.Run(ctx, queries)
+			query := params["query"].(string)
+			return search.Run(ctx, query)
 		}).
 		Build()
 
