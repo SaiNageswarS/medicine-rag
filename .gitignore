@@ -1,0 +1,5 @@
+build
+generated
+.env
+pyEnv
+*.pyc
