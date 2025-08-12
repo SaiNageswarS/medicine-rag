@@ -2,13 +2,13 @@ package mcp
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/SaiNageswarS/agent-boot/schema"
 	"github.com/SaiNageswarS/go-api-boot/dotenv"
 	"github.com/SaiNageswarS/go-api-boot/embed"
 	"github.com/SaiNageswarS/go-api-boot/odm"
+	"github.com/SaiNageswarS/go-collection-boot/linq"
 	"github.com/SaiNageswarS/medicine-rag/core/db"
 	"github.com/stretchr/testify/assert"
 )
@@ -26,6 +26,8 @@ func TestSearch(t *testing.T) {
 	testQuery := "homeopathic remedies fear of death anxiety treatment"
 
 	t.Run("TestHybridSearch", func(t *testing.T) {
+		expectedChunkPrefixes := []string{"1544328200c1", "9a24dcec7d80"}
+
 		searchTool := NewSearchTool(chunkRepository, vectorRepository, embedder)
 		ctx := context.Background()
 		resultsChan := searchTool.Run(ctx, []string{testQuery})
@@ -42,38 +44,20 @@ func TestSearch(t *testing.T) {
 		assert.NotEmpty(t, searchResults, "Search should return results")
 
 		// Extract chunk IDs from sentences in the results
-		for _, result := range searchResults {
-			// For each result, we need to find the corresponding chunks to get their IDs
-			// Since the new API returns sentences, we'll need to validate based on content
-			// and attribution instead of chunk IDs directly
+		chunkIds, err := linq.Pipe2(
+			linq.FromSlice(t.Context(), searchResults),
 
-			// Validate that we have content and attribution
-			assert.NotEmpty(t, result.Sentences, "Result should have sentences")
-			assert.NotEmpty(t, result.Attribution, "Result should have attribution")
-			assert.NotEmpty(t, result.Title, "Result should have title")
+			linq.Select(func(result *schema.ToolResultChunk) string {
+				return result.Id
+			}),
+
+			linq.ToSlice[string](),
+		)
+
+		assert.NoError(t, err, "Should not error while extracting chunk IDs")
+
+		for _, expectedChunkId := range expectedChunkPrefixes {
+			assert.Contains(t, chunkIds, expectedChunkId, "Expected chunk ID should be present in search results")
 		}
-
-		// Since the API has changed and we no longer get chunk IDs directly,
-		// we'll validate that we get meaningful results instead
-		assert.True(t, len(searchResults) > 0, "Should get search results")
-
-		// Validate that results contain expected content patterns
-		hasRelevantContent := false
-		for _, result := range searchResults {
-			for _, sentence := range result.Sentences {
-				if strings.Contains(strings.ToLower(sentence), "homeopathic") ||
-					strings.Contains(strings.ToLower(sentence), "anxiety") ||
-					strings.Contains(strings.ToLower(sentence), "fear") ||
-					strings.Contains(strings.ToLower(sentence), "death") {
-					hasRelevantContent = true
-					break
-				}
-			}
-			if hasRelevantContent {
-				break
-			}
-		}
-
-		assert.True(t, hasRelevantContent, "Results should contain content relevant to the search query")
 	})
 }

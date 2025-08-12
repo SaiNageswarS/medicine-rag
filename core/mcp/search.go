@@ -109,6 +109,7 @@ func (s *SearchTool) Run(ctx context.Context, queries []string) <-chan *schema.T
 				result := &schema.ToolResultChunk{
 					Title:       sectionChunks[0].Title,
 					Attribution: sectionChunks[0].SourceURI,
+					Id:          sectionChunks[0].SectionID,
 				}
 
 				cache := make(map[string]*db.ChunkModel, len(sectionChunks)*2)
