@@ -1,0 +1,40 @@
+{
+  "name": "agent-boot-ui",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "dev:turbo": "next dev --turbopack",
+    "build": "npm run generate-grpc && next build",
+    "start": "next start",
+    "lint": "next lint",
+    "generate-grpc": "npm run clean-generated && npm run generate-tsproto",
+    "clean-generated": "rm -rf src/generated && mkdir -p src/generated",
+    "generate-tsproto": "protoc --plugin=./node_modules/.bin/protoc-gen-ts_proto --ts_proto_out=src/generated --ts_proto_opt=outputServices=grpc-js,env=node,useOptionals=messages,exportCommonSymbols=false,esModuleInterop=true -I ../proto ../proto/*.proto",
+    "postinstall": "npm run generate-grpc"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.5.2",
+    "@connectrpc/connect": "^2.0.2",
+    "@connectrpc/connect-web": "^2.0.2",
+    "@grpc/grpc-js": "^1.9.14",
+    "autoprefixer": "^10.4.21",
+    "lucide-react": "^0.522.0",
+    "next": "15.3.4",
+    "postcss": "^8.5.6",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-markdown": "^10.1.0"
+  },
+  "devDependencies": {
+    "@bufbuild/buf": "^1.55.1",
+    "@bufbuild/protoc-gen-es": "^2.5.2",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "tailwindcss": "^4",
+    "ts-proto": "^2.7.5",
+    "typescript": "^5"
+  }
+}

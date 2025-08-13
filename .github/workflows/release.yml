@@ -34,15 +34,13 @@ jobs:
 
       - name: Build all components
         run: |
-          cd core
-          ls -l 
-          chmod +x build.sh 
-          ./build.sh
+          chmod +x build-core.sh
+          ./build-core.sh
 
       - name: Move all binaries to ./release-bin
         run: |
           mkdir -p release-bin
-          mv core/build/* release-bin/
+          mv build/* release-bin/
           ls -lh release-bin
 
       - name: Upload Go artifacts
