@@ -89,6 +89,9 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Install protoc
+        run: sudo apt update && sudo apt install -y protobuf-compiler
+
       - name: Install dependencies
         run: cd ui && npm install
 
