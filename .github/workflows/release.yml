@@ -101,14 +101,14 @@ jobs:
       - name: Package UI
         run: |
           mkdir -p release-bin
-          zip -r release-bin/ui.zip ui/.next ui/public ui/package.json
+          cp -r ui/.next ui/public ui/package.json release-bin/
           ls -lh release-bin
 
       - name: Upload UI artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ui-binaries
-          path: release-bin/ui.zip
+          path: release-bin/*
 
   release:
     needs:  [build-core, build-pySideCar, build-ui]

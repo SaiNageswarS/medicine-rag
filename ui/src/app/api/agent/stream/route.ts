@@ -28,19 +28,10 @@ export async function POST(request: NextRequest) {
 
     // Use default session ID if not provided
     const effectiveSessionId = sessionId || `default_${Date.now()}`;
-    
-    // Use deepseek as default model (changed from claude)
-    const effectiveModel = model || 'deepseek';
-    
-    // Validate model parameter
-    const validModels = ['claude', 'deepseek'];
-    if (!validModels.includes(effectiveModel)) {
-      return NextResponse.json(
-        { error: `Invalid model: ${effectiveModel}. Valid options: ${validModels.join(', ')}` },
-        { status: 400 }
-      );
-    }
-    
+
+    // Use Claude as default model (changed from deepseek)
+    const effectiveModel = model || 'Claude';
+
     console.log('Server-side agent streaming request:', {
       text: text.substring(0, 100) + '...',
       sessionId: effectiveSessionId,

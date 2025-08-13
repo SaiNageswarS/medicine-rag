@@ -10,8 +10,7 @@
     "lint": "next lint",
     "generate-grpc": "npm run clean-generated && npm run generate-tsproto",
     "clean-generated": "rm -rf src/generated && mkdir -p src/generated",
-    "generate-tsproto": "protoc --plugin=./node_modules/.bin/protoc-gen-ts_proto --ts_proto_out=src/generated --ts_proto_opt=outputServices=grpc-js,env=node,useOptionals=messages,exportCommonSymbols=false,esModuleInterop=true -I ../proto ../proto/*.proto",
-    "postinstall": "npm run generate-grpc"
+    "generate-tsproto": "protoc --plugin=./node_modules/.bin/protoc-gen-ts_proto --ts_proto_out=src/generated --ts_proto_opt=outputServices=grpc-js,env=node,useOptionals=messages,exportCommonSymbols=false,esModuleInterop=true -I ../proto ../proto/*.proto"
   },
   "dependencies": {
     "@bufbuild/protobuf": "^2.5.2",
