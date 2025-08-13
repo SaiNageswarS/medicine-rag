@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-go-binaries:
+  build-core:
     runs-on: ubuntu-latest
 
     steps:
@@ -77,8 +77,41 @@ jobs:
           name: python-binaries
           path: release-bin/pySideCar.zip
 
+  build-ui:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout UI
+        uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: cd ui && npm install
+
+      - name: Build UI
+        run: cd ui && npm run build
+
+      - name: Package UI
+        run: |
+          mkdir -p release-bin
+          cd ui
+          npm ci --only=production
+          npm run build
+          zip -r ../release-bin/ui.zip .next public node_modules package.json
+          ls -lh ../release-bin
+
+      - name: Upload UI artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-binaries
+          path: release-bin/ui.zip
+
   release:
-    needs:  [build-go-binaries, build-pySideCar]
+    needs:  [build-core, build-pySideCar, build-ui]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')   # only for tag pushes
     permissions:
@@ -97,6 +130,12 @@ jobs:
         name: python-binaries
         path: ./artifacts
 
+    - name: Download UI artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: ui-binaries
+        path: ./artifacts
+
     - name: List downloaded artifacts
       run: |
         echo "Downloaded contents:"
@@ -113,6 +152,5 @@ jobs:
           
           ### Go Executables
           - `medicine-rag` - Example Medicine RAG Executable
-          - `mcp-agent` - Linux mcp Executable
-          - `mcp-agent.exe` - Windows mcp Executable
-          - pySideCar.zip - Python Temporal Worker
+          - `pySideCar.zip` - Python Temporal Worker
+          - `ui.zip` - Next.js UI
