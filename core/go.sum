@@ -52,8 +52,8 @@ github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/cloudmock v0
 github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/cloudmock v0.51.0/go.mod h1:SZiPHWGOOk3bl8tkevxkoiwPgsIl6CwrWcbwjfHZpdM=
 github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.51.0 h1:6/0iUd0xrnX7qt+mLNRwg5c0PGv8wpE8K90ryANQwMI=
 github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.51.0/go.mod h1:otE2jQekW/PqXk1Awf5lmfokJx4uwuqcj1ab5SpGeW0=
-github.com/SaiNageswarS/agent-boot v1.0.34 h1:BOaALhrQuBlw1SuTpMuAmOn0LnPzFJ9gpX/tvVLCUkE=
-github.com/SaiNageswarS/agent-boot v1.0.34/go.mod h1:8FvpPA8OGgk0claZR1McYKjLxLUycRmxHNDIC/M5CzA=
+github.com/SaiNageswarS/agent-boot v1.0.35 h1:ATceXKA5Qx5O0LHuDzsIc3OLuVTeTwDeLYtTouo+huY=
+github.com/SaiNageswarS/agent-boot v1.0.35/go.mod h1:8FvpPA8OGgk0claZR1McYKjLxLUycRmxHNDIC/M5CzA=
 github.com/SaiNageswarS/go-api-boot v1.0.32 h1:upzheWWY8rQMwxoZht2oXzi8Te4UlawkDGeyhmlO3Bs=
 github.com/SaiNageswarS/go-api-boot v1.0.32/go.mod h1:ZeEfikqpTE35VA/N5ijXwuOsBni7gZVlXfXFX7b6n78=
 github.com/SaiNageswarS/go-collection-boot v1.0.7 h1:Rc59oPZnwDeEWcCPFORdpw7S+venqQDdgULeSeY+agM=
