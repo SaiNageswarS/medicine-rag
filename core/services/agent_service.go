@@ -38,16 +38,17 @@ func (s *AgentService) Execute(req *schema.GenerateAnswerRequest, stream grpc.Se
 	search := mcp.NewSearchTool(chunkRepository, vectorRepository, s.embedder)
 
 	mcp := agentboot.NewMCPToolBuilder("medicine-rag", "Search and retrieve medical information and remedies from the database for the user query.").
-		StringSliceParam("query", "Search Query to perform search", true).
+		StringParam("query", "Search Query to perform search", true).
 		WithHandler(func(ctx context.Context, params api.ToolCallFunctionArguments) <-chan *schema.ToolResultChunk {
 			query := params["query"].(string)
 			return search.Run(ctx, query)
 		}).
+		Summarize(true).
 		Build()
 
 	agent := agentboot.NewAgentBuilder().
-		WithMiniModel(llm.NewOllamaClient("gpt-oss:20b")).
-		WithBigModel(llm.NewOllamaClient("gpt-oss:20b")).
+		WithMiniModel(llm.NewAnthropicClient("claude-3-5-haiku-20241022")).
+		WithBigModel(llm.NewAnthropicClient("claude-3-5-haiku-20241022")).
 		WithSystemPrompt("You are an assistant for Qualified Homeopathic Physicians. Use tools available to find relevant information from medical knowledge base to give appropriate response.").
 		AddTool(mcp).
 		Build()

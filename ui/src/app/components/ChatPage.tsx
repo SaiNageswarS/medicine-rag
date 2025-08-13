@@ -26,16 +26,15 @@ const generateSessionId = (): string => {
   return `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
 }
 
-// Model options - DeepSeek as default (first in array)
+// Model options - Claude as default (first in array)
 const MODEL_OPTIONS = [
-  { value: 'deepseek', label: 'DeepSeek', icon: Cpu, description: 'Fast and efficient responses' },
-  { value: 'claude', label: 'Claude', icon: Bot, description: 'Advanced reasoning and analysis' }
+  { value: 'Claude', label: 'Claude', icon: Cpu, description: 'Fast and efficient responses' }
 ]
 
 export default function ChatPage({ onLogout }: ChatPageProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [inputText, setInputText] = useState<string>('')
-  const [selectedModel, setSelectedModel] = useState<string>('deepseek') // Changed default to deepseek
+  const [selectedModel, setSelectedModel] = useState<string>('Claude') // default to Claude
   const [isLoading, setIsLoading] = useState<boolean>(false)
   const [streamingProgress, setStreamingProgress] = useState<StreamingProgress | null>(null)
   const [expandedTools, setExpandedTools] = useState<ExpandedTools>({})
