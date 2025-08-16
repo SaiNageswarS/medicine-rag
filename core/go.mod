@@ -3,8 +3,8 @@ module github.com/SaiNageswarS/medicine-rag/core
 go 1.24.4
 
 require (
-	github.com/SaiNageswarS/agent-boot v1.0.35
-	github.com/SaiNageswarS/go-api-boot v1.0.32
+	github.com/SaiNageswarS/agent-boot v1.0.37
+	github.com/SaiNageswarS/go-api-boot v1.0.35
 	github.com/SaiNageswarS/go-collection-boot v1.0.7
 	github.com/ollama/ollama v0.11.3
 	github.com/stretchr/testify v1.10.0

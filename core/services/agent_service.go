@@ -6,6 +6,7 @@ import (
 	"github.com/SaiNageswarS/agent-boot/agentboot"
 	"github.com/SaiNageswarS/agent-boot/llm"
 	"github.com/SaiNageswarS/agent-boot/schema"
+	"github.com/SaiNageswarS/agent-boot/session"
 	"github.com/SaiNageswarS/go-api-boot/auth"
 	"github.com/SaiNageswarS/go-api-boot/embed"
 	"github.com/SaiNageswarS/go-api-boot/odm"
@@ -35,6 +36,8 @@ func (s *AgentService) Execute(req *schema.GenerateAnswerRequest, stream grpc.Se
 	chunkRepository := odm.CollectionOf[db.ChunkModel](s.mongo, tenant)
 	vectorRepository := odm.CollectionOf[db.ChunkAnnModel](s.mongo, tenant)
 
+	sessionRepository := odm.CollectionOf[session.SessionModel](s.mongo, tenant)
+
 	search := mcp.NewSearchTool(chunkRepository, vectorRepository, s.embedder)
 
 	mcp := agentboot.NewMCPToolBuilder("medicine-rag", "Search and retrieve medical information and remedies from the database for the user query.").
@@ -51,6 +54,8 @@ func (s *AgentService) Execute(req *schema.GenerateAnswerRequest, stream grpc.Se
 		WithBigModel(llm.NewAnthropicClient("claude-3-5-haiku-20241022")).
 		WithSystemPrompt("You are an assistant for Qualified Homeopathic Physicians. Use tools available to find relevant information from medical knowledge base to give appropriate response.").
 		AddTool(mcp).
+		WithSessionCollection(sessionRepository).
+		WithMaxSessionMessages(5).
 		Build()
 
 	streamReporter := &agentboot.GrpcProgressReporter{Stream: stream}

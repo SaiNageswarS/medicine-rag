@@ -268,6 +268,7 @@ export class ServerAgentService {
         });
         
         const request: GenerateAnswerRequest = {
+          sessionId: input.sessionId,
           question: input.text,
           maxIterations: 3,
           metadata: {

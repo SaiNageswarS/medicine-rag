@@ -27,10 +27,5 @@ func InitSearchCoreDB(ctx context.Context, mongo odm.MongoClient, tenant string)
 		return err
 	}
 
-	err = odm.EnsureIndexes[SessionModel](ctx, mongo, tenant)
-	if err != nil {
-		return err
-	}
-
 	return nil
 }
