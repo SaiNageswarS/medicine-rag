@@ -52,7 +52,7 @@ func (s *AgentService) Execute(req *schema.GenerateAnswerRequest, stream grpc.Se
 	agent := agentboot.NewAgentBuilder().
 		WithMiniModel(llm.NewAnthropicClient("claude-3-5-haiku-20241022")).
 		WithBigModel(llm.NewAnthropicClient("claude-3-5-haiku-20241022")).
-		WithSystemPrompt("You are an assistant for Qualified Homeopathic Physicians. Use tools available to find relevant information from medical knowledge base to give appropriate response.").
+		WithSystemPrompt("You are an assistant for Qualified Homeopathic Physicians. You are provided with medicine-rag tool to query medical knowledge database. Use ONLY INFORMATION from medicine-rag to answer the User Query.").
 		AddTool(mcp).
 		WithSessionCollection(sessionRepository).
 		WithMaxSessionMessages(5).
