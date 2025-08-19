@@ -10,7 +10,7 @@ import (
 	"github.com/SaiNageswarS/go-collection-boot/async"
 	"github.com/SaiNageswarS/medicine-rag/core/appconfig"
 	"github.com/SaiNageswarS/medicine-rag/core/db"
-	pb "github.com/SaiNageswarS/medicine-rag/core/generated"
+	pb "github.com/SaiNageswarS/medicine-rag/proto/generated"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 	"google.golang.org/grpc/codes"

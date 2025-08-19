@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-option go_package = "medicine-rag/core/generated";
+option go_package = "medicine-rag/proto/generated";
 
 package search;
 

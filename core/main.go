@@ -7,7 +7,7 @@ import (
 	"syscall"
 	"time"
 
-	pb "github.com/SaiNageswarS/medicine-rag/core/generated"
+	pb "github.com/SaiNageswarS/medicine-rag/proto/generated"
 
 	"github.com/SaiNageswarS/agent-boot/schema"
 	"github.com/SaiNageswarS/go-api-boot/cloud"
