@@ -34,8 +34,8 @@ jobs:
 
       - name: Build all components
         run: |
-          chmod +x build-core.sh
-          ./build-core.sh
+          chmod +x build.sh
+          ./build.sh
 
       - name: Move all binaries to ./release-bin
         run: |
@@ -77,41 +77,8 @@ jobs:
           name: python-binaries
           path: release-bin/pySideCar.zip
 
-  build-ui:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout UI
-        uses: actions/checkout@v4
-
-      - name: Install Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - name: Install protoc
-        run: sudo apt update && sudo apt install -y protobuf-compiler
-
-      - name: Install dependencies
-        run: cd ui && npm install
-
-      - name: Build UI
-        run: cd ui && npm run build
-
-      - name: Package UI
-        run: |
-          mkdir -p release-bin
-          cp -r ui/.next ui/public ui/package.json release-bin/
-          ls -lh release-bin
-
-      - name: Upload UI artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: ui-binaries
-          path: release-bin/*
-
   release:
-    needs:  [build-core, build-pySideCar, build-ui]
+    needs:  [build-core, build-pySideCar]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')   # only for tag pushes
     permissions:
@@ -130,12 +97,6 @@ jobs:
         name: python-binaries
         path: ./artifacts
 
-    - name: Download UI artifacts
-      uses: actions/download-artifact@v4
-      with:
-        name: ui-binaries
-        path: ./artifacts
-
     - name: List downloaded artifacts
       run: |
         echo "Downloaded contents:"
@@ -151,6 +112,5 @@ jobs:
           ## Downloads
           
           ### Go Executables
-          - `medicine-rag` - Example Medicine RAG Executable
+          - `medicine-rag` - Medicine RAG Executable
           - `pySideCar.zip` - Python Temporal Worker
-          - `ui.zip` - Next.js UI

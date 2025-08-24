@@ -15,7 +15,9 @@ import (
 	pb "github.com/SaiNageswarS/medicine-rag/proto/generated"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 //go:embed views/*.html
@@ -178,7 +180,7 @@ func (h *PageHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Call the actual gRPC login service
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
 	loginReq := &pb.LoginRequest{
@@ -318,8 +320,9 @@ func (h *PageHandler) StaticHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(content)
 }
 
-// AgentStreamHandler handles streaming agent requests
 func (h *PageHandler) AgentStreamHandler(w http.ResponseWriter, r *http.Request) {
+	logger.Info("AgentStreamHandler called", zap.String("method", r.Method), zap.String("url", r.URL.String()))
+
 	if r.Method != "POST" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -327,6 +330,7 @@ func (h *PageHandler) AgentStreamHandler(w http.ResponseWriter, r *http.Request)
 
 	// Check authentication
 	if !h.isAuthenticated(r) {
+		logger.Error("Unauthenticated request to AgentStreamHandler")
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -339,28 +343,37 @@ func (h *PageHandler) AgentStreamHandler(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&reqData); err != nil {
+		logger.Error("Failed to decode request body", zap.Error(err))
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
+
+	logger.Info("Processing agent request", zap.String("text", reqData.Text), zap.String("sessionId", reqData.SessionId))
 
 	if reqData.Text == "" {
 		http.Error(w, "Text is required", http.StatusBadRequest)
 		return
 	}
 
-	// Set up Server-Sent Events
+	// Set up Server-Sent Events with proper headers
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Headers", "Cache-Control")
+	w.Header().Set("X-Accel-Buffering", "no") // Disable Nginx buffering
+
+	// Ensure the response is written immediately
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
 
 	// Get auth token for gRPC call
 	authToken := h.getAuthToken(r)
 
 	// Create context with auth metadata
-	ctx := context.Background()
+	ctx := r.Context()
 	if authToken != "" {
-		// Add authentication metadata with Bearer token for gRPC
 		md := metadata.New(map[string]string{
 			"authorization": "Bearer " + authToken,
 		})
@@ -382,52 +395,87 @@ func (h *PageHandler) AgentStreamHandler(w http.ResponseWriter, r *http.Request)
 	stream, err := h.agentClient.Execute(ctx, agentReq)
 	if err != nil {
 		logger.Error("Failed to call agent service", zap.Error(err))
-		http.Error(w, "Failed to start agent stream", http.StatusInternalServerError)
+		h.sendSSEError(w, fmt.Sprintf("Failed to start agent stream: %v", err))
 		return
 	}
+
+	logger.Info("gRPC stream started successfully", zap.String("sessionId", reqData.SessionId))
+
+	// Send initial connection event
+	h.sendSSEData(w, map[string]interface{}{
+		"type":    "connected",
+		"message": "Stream started",
+	})
 
 	// Stream the response
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+		h.sendSSEError(w, "Streaming unsupported")
 		return
 	}
 
-	// Send initial connection event
-	fmt.Fprintf(w, "data: %s\n\n", `{"type":"connected","message":"Stream started"}`)
-	flusher.Flush()
-
+	chunkCount := 0
 	for {
-		chunk, err := stream.Recv()
-		if err != nil {
-			if err.Error() == "EOF" {
-				// Stream ended normally
-				fmt.Fprintf(w, "data: %s\n\n", `{"type":"end","message":"Stream completed"}`)
-				flusher.Flush()
-				break
-			}
-			logger.Error("Stream error", zap.Error(err))
-			fmt.Fprintf(w, "data: %s\n\n", fmt.Sprintf(`{"type":"error","message":"%s"}`, err.Error()))
-			flusher.Flush()
-			break
-		}
-
-		// Convert chunk to JSON and send as SSE
-		chunkData, _ := json.Marshal(map[string]interface{}{
-			"type":  "chunk",
-			"chunk": chunk,
-		})
-
-		fmt.Fprintf(w, "data: %s\n\n", string(chunkData))
-		flusher.Flush()
-
-		// Check if client disconnected
 		select {
-		case <-r.Context().Done():
-			logger.Info("Client disconnected from stream")
+		case <-ctx.Done():
+			// Client disconnected
+			logger.Info("Client disconnected from stream", zap.Int("chunks_received", chunkCount))
 			return
 		default:
+			chunk, err := stream.Recv()
+			if err != nil {
+				if err.Error() == "EOF" || status.Code(err) == codes.Canceled {
+					// Stream ended normally
+					logger.Info("Stream ended normally", zap.Int("chunks_received", chunkCount))
+					h.sendSSEData(w, map[string]interface{}{
+						"type":    "end",
+						"message": "Stream completed",
+					})
+					return
+				}
+				logger.Error("Stream error", zap.Error(err), zap.Int("chunks_received", chunkCount))
+				h.sendSSEError(w, fmt.Sprintf("Stream error: %v", err))
+				return
+			}
+
+			chunkCount++
+			logger.Info("Received chunk from gRPC stream", zap.Int("chunk_number", chunkCount))
+
+			// Convert chunk to JSON and send as SSE
+			chunkData := map[string]interface{}{
+				"type":  "chunk",
+				"chunk": chunk,
+			}
+
+			h.sendSSEData(w, chunkData)
+			flusher.Flush()
+
+			logger.Debug("Sent SSE chunk to client", zap.Int("chunk_number", chunkCount))
 		}
+	}
+}
+
+// Helper function to send SSE data
+func (h *PageHandler) sendSSEData(w http.ResponseWriter, data interface{}) {
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		logger.Error("Failed to marshal SSE data", zap.Error(err))
+		return
+	}
+
+	fmt.Fprintf(w, "data: %s\n\n", string(jsonData))
+}
+
+// Helper function to send SSE error
+func (h *PageHandler) sendSSEError(w http.ResponseWriter, message string) {
+	errorData := map[string]interface{}{
+		"type":    "error",
+		"message": message,
+	}
+	h.sendSSEData(w, errorData)
+
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
 	}
 }
 
