@@ -1,4 +1,7 @@
+import io
 import logging
+import os
+import tempfile
 from typing import Optional
 
 from temporalio import activity
@@ -21,34 +24,239 @@ class IndexerActivities:
         self._azure_storage = azure_storage
 
         self.window_chunker = WindowChunker()
+        
+        # Configure Tesseract path if needed (for different OS environments)
+        self._configure_tesseract()
+
+    def _configure_tesseract(self):
+        """Configure Tesseract OCR path for different environments."""
+        try:
+            import pytesseract
+        except ImportError:
+            logger.warning("pytesseract not available. OCR functionality will not work.")
+            return
+            
+        # Try common Tesseract installation paths
+        tesseract_paths = [
+            '/usr/bin/tesseract',
+            '/usr/local/bin/tesseract',
+            '/opt/homebrew/bin/tesseract',  # macOS with Homebrew
+            'tesseract'  # If it's in PATH
+        ]
+        
+        for path in tesseract_paths:
+            if os.path.exists(path) or path == 'tesseract':
+                try:
+                    pytesseract.pytesseract.tesseract_cmd = path
+                    # Test if tesseract is working
+                    pytesseract.get_tesseract_version()
+                    logger.info(f"Tesseract configured at: {path}")
+                    return
+                except Exception as e:
+                    logger.warning(f"Tesseract at {path} not working: {e}")
+                    continue
+        
+        logger.warning("Tesseract not found. OCR functionality may not work properly.")
+
+    def _is_scanned_pdf(self, pdf_path: str) -> bool:
+        """
+        Check if a PDF is scanned (contains mostly images with little to no text).
+        
+        Args:
+            pdf_path (str): Path to the PDF file
+            
+        Returns:
+            bool: True if the PDF appears to be scanned, False otherwise
+        """
+        try:
+            import fitz  # PyMuPDF
+        except ImportError:
+            logger.error("PyMuPDF not available. Cannot check if PDF is scanned.")
+            return True  # Assume scanned if we can't check
+            
+        try:
+            doc = fitz.open(pdf_path)
+            total_text_length = 0
+            total_pages = len(doc)
+            
+            # Check first few pages for text content
+            pages_to_check = min(3, total_pages)
+            
+            for page_num in range(pages_to_check):
+                page = doc[page_num]
+                text = page.get_text().strip()
+                total_text_length += len(text)
+            
+            doc.close()
+            
+            # If average text per page is very low, likely scanned
+            avg_text_per_page = total_text_length / pages_to_check
+            is_scanned = avg_text_per_page < 50  # Threshold for scanned content
+            
+            logger.info(f"PDF text analysis: {avg_text_per_page:.1f} chars/page, scanned: {is_scanned}")
+            return is_scanned
+            
+        except Exception as e:
+            logger.error(f"Error checking if PDF is scanned: {e}")
+            # If we can't determine, assume it might be scanned and try OCR
+            return True
+
+    def _apply_ocr_to_pdf(self, pdf_path: str) -> str:
+        """
+        Apply OCR to a scanned PDF and return the path to the OCR-processed PDF.
+        
+        Args:
+            pdf_path (str): Path to the original PDF file
+            
+        Returns:
+            str: Path to the OCR-processed PDF file
+        """
+        try:
+            import fitz  # PyMuPDF
+            import pytesseract
+            from PIL import Image
+        except ImportError as import_error:
+            logger.error(f"Required OCR libraries not available: {import_error}")
+            return pdf_path  # Return original PDF if libraries not available
+            
+        try:
+            logger.info(f"Applying OCR to PDF: {pdf_path}")
+            
+            # Open the original PDF
+            doc = fitz.open(pdf_path)
+            new_doc = fitz.open()  # New PDF to store OCR-processed pages
+            
+            for page_num in range(len(doc)):
+                page = doc[page_num]
+                logger.info(f"Processing page {page_num + 1}/{len(doc)}")
+                
+                # Render page as an image with higher DPI for better OCR
+                pix = page.get_pixmap(dpi=300)
+                img_data = pix.tobytes("png")
+                
+                # Convert to PIL Image for OCR
+                img = Image.open(io.BytesIO(img_data))
+                
+                # Apply OCR using pytesseract
+                try:
+                    # Get OCR text from the image
+                    ocr_text = pytesseract.image_to_string(img, lang='eng')
+                    
+                    if ocr_text.strip():
+                        # Create a new page with the same dimensions
+                        new_page = new_doc.new_page(width=page.rect.width, height=page.rect.height)
+                        
+                        # Add the OCR text to the page
+                        # Split text into lines and add them
+                        lines = ocr_text.strip().split('\n')
+                        y_position = 50  # Start position
+                        line_height = 20
+                        
+                        for line in lines:
+                            if line.strip():
+                                new_page.insert_text(
+                                    (50, y_position),  # Position
+                                    line.strip(),
+                                    fontsize=12,
+                                    color=(0, 0, 0)  # Black text
+                                )
+                                y_position += line_height
+                        
+                        # Insert the processed page
+                        new_doc.insert_pdf(fitz.open("pdf", new_page.get_pixmap().pdfocr_tobytes()))
+                    else:
+                        # If no text found, try PyMuPDF's built-in OCR
+                        logger.warning(f"No text found on page {page_num + 1}, trying PyMuPDF OCR")
+                        try:
+                            ocr_pdf_bytes = pix.pdfocr_tobytes()
+                            if ocr_pdf_bytes:
+                                temp_doc = fitz.open("pdf", ocr_pdf_bytes)
+                                new_doc.insert_pdf(temp_doc)
+                                temp_doc.close()
+                            else:
+                                # If all OCR fails, insert original page
+                                new_doc.insert_pdf(fitz.open("pdf", page.get_pixmap().pdfocr_tobytes()))
+                        except Exception as ocr_error:
+                            logger.warning(f"PyMuPDF OCR failed: {ocr_error}")
+                            # Insert original page if OCR fails
+                            new_doc.insert_pdf(fitz.open("pdf", page.get_pixmap().pdfocr_tobytes()))
+                    
+                except Exception as ocr_error:
+                    logger.error(f"OCR failed for page {page_num + 1}: {ocr_error}")
+                    # Insert original page if OCR fails
+                    new_doc.insert_pdf(fitz.open("pdf", page.get_pixmap().pdfocr_tobytes()))
+            
+            doc.close()
+            
+            # Save the OCR-processed PDF to a temporary file
+            temp_fd, temp_path = tempfile.mkstemp(suffix='_ocr.pdf')
+            os.close(temp_fd)
+            new_doc.save(temp_path)
+            new_doc.close()
+            
+            logger.info(f"OCR processing completed. Saved to: {temp_path}")
+            return temp_path
+            
+        except Exception as e:
+            logger.error(f"Error applying OCR to PDF: {e}")
+            # Return original PDF path if OCR fails
+            return pdf_path
 
     @activity.defn(name="convert_pdf_to_md")
     async def convert_pdf_to_md(self, tenant: str, pdf_file_name: str) -> str:
         """
         Convert a PDF file stored in Azure Blob Storage to Markdown format.
+        Automatically detects scanned PDFs and applies OCR if needed.
 
         Args:
-            blob_name (str): The name of the blob in Azure Blob Storage.
+            tenant (str): The tenant identifier.
+            pdf_file_name (str): The name of the PDF file in Azure Blob Storage.
 
         Returns:
-            str: The path to the converted Markdown file.
+            str: The name of the converted Markdown file.
         """
-        import pymupdf4llm
+        try:
+            import pymupdf4llm
+        except ImportError:
+            logger.error("pymupdf4llm not available. Cannot convert PDF to Markdown.")
+            raise
 
         logging.info(f"Starting conversion of {pdf_file_name} to Markdown")
 
         # Download the PDF file from Azure Blob Storage
         pdf_file_path = self._azure_storage.download_file(tenant, pdf_file_name)
 
-        # Convert the PDF to Markdown (placeholder for actual conversion logic)
-        md_text = pymupdf4llm.to_markdown(pdf_file_path)
+        # Check if the PDF is scanned and needs OCR
+        is_scanned = self._is_scanned_pdf(pdf_file_path)
+        
+        if is_scanned:
+            logging.info(f"PDF {pdf_file_name} appears to be scanned, applying OCR")
+            try:
+                # Apply OCR to the scanned PDF
+                ocr_pdf_path = self._apply_ocr_to_pdf(pdf_file_path)
+                
+                # Use the OCR-processed PDF for markdown conversion
+                md_text = pymupdf4llm.to_markdown(ocr_pdf_path)
+                
+                # Clean up the temporary OCR file
+                try:
+                    os.unlink(ocr_pdf_path)
+                except Exception as cleanup_error:
+                    logging.warning(f"Failed to clean up OCR file {ocr_pdf_path}: {cleanup_error}")
+                    
+            except Exception as ocr_error:
+                logging.error(f"OCR processing failed for {pdf_file_name}: {ocr_error}")
+                logging.info("Falling back to direct markdown conversion without OCR")
+                # Fallback to direct conversion if OCR fails
+                md_text = pymupdf4llm.to_markdown(pdf_file_path)
+        else:
+            logging.info(f"PDF {pdf_file_name} contains text, converting directly to Markdown")
+            # Convert the PDF to Markdown directly
+            md_text = pymupdf4llm.to_markdown(pdf_file_path)
 
-        # upload to Azure Blob Storage
+        # Upload the markdown content to Azure Blob Storage
         md_file_name = pdf_file_name.replace(".pdf", ".md")
         self._azure_storage.upload_bytes(tenant, md_file_name, md_text.encode("utf-8"))
-
-        # Here you would implement the actual conversion logic
-        # For now, we just simulate it by renaming the file
 
         logging.info(f"Converted {pdf_file_name} to {md_file_name}")
 
