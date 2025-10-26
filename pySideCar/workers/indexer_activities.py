@@ -52,7 +52,7 @@ class IndexerActivities:
                     pytesseract.get_tesseract_version()
                     logger.info(f"Tesseract configured at: {path}")
                     return
-                except Exception as e:
+                except (OSError, RuntimeError) as e:
                     logger.warning(f"Tesseract at {path} not working: {e}")
                     continue
         
@@ -93,10 +93,13 @@ class IndexerActivities:
             avg_text_per_page = total_text_length / pages_to_check
             is_scanned = avg_text_per_page < 50  # Threshold for scanned content
             
-            logger.info(f"PDF text analysis: {avg_text_per_page:.1f} chars/page, scanned: {is_scanned}")
+            logger.info(
+                f"PDF text analysis: {avg_text_per_page:.1f} chars/page, "
+                f"scanned: {is_scanned}"
+            )
             return is_scanned
             
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError) as e:
             logger.error(f"Error checking if PDF is scanned: {e}")
             # If we can't determine, assume it might be scanned and try OCR
             return True
@@ -126,65 +129,9 @@ class IndexerActivities:
             doc = fitz.open(pdf_path)
             new_doc = fitz.open()  # New PDF to store OCR-processed pages
             
-            for page_num in range(len(doc)):
-                page = doc[page_num]
+            for page_num, page in enumerate(doc):
                 logger.info(f"Processing page {page_num + 1}/{len(doc)}")
-                
-                # Render page as an image with higher DPI for better OCR
-                pix = page.get_pixmap(dpi=300)
-                img_data = pix.tobytes("png")
-                
-                # Convert to PIL Image for OCR
-                img = Image.open(io.BytesIO(img_data))
-                
-                # Apply OCR using pytesseract
-                try:
-                    # Get OCR text from the image
-                    ocr_text = pytesseract.image_to_string(img, lang='eng')
-                    
-                    if ocr_text.strip():
-                        # Create a new page with the same dimensions
-                        new_page = new_doc.new_page(width=page.rect.width, height=page.rect.height)
-                        
-                        # Add the OCR text to the page
-                        # Split text into lines and add them
-                        lines = ocr_text.strip().split('\n')
-                        y_position = 50  # Start position
-                        line_height = 20
-                        
-                        for line in lines:
-                            if line.strip():
-                                new_page.insert_text(
-                                    (50, y_position),  # Position
-                                    line.strip(),
-                                    fontsize=12,
-                                    color=(0, 0, 0)  # Black text
-                                )
-                                y_position += line_height
-                        
-                        # Insert the processed page
-                        new_doc.insert_pdf(fitz.open("pdf", new_page.get_pixmap().pdfocr_tobytes()))
-                    else:
-                        # If no text found, try PyMuPDF's built-in OCR
-                        logger.warning(f"No text found on page {page_num + 1}, trying PyMuPDF OCR")
-                        try:
-                            ocr_pdf_bytes = pix.pdfocr_tobytes()
-                            if ocr_pdf_bytes:
-                                temp_doc = fitz.open("pdf", ocr_pdf_bytes)
-                                new_doc.insert_pdf(temp_doc)
-                                temp_doc.close()
-                            else:
-                                # If all OCR fails, insert original page
-                                new_doc.insert_pdf(fitz.open("pdf", page.get_pixmap().pdfocr_tobytes()))
-                        except Exception as ocr_error:
-                            logger.warning(f"PyMuPDF OCR failed: {ocr_error}")
-                            # Insert original page if OCR fails
-                            new_doc.insert_pdf(fitz.open("pdf", page.get_pixmap().pdfocr_tobytes()))
-                    
-                except Exception as ocr_error:
-                    logger.error(f"OCR failed for page {page_num + 1}: {ocr_error}")
-                    # Insert original page if OCR fails
-                    new_doc.insert_pdf(fitz.open("pdf", page.get_pixmap().pdfocr_tobytes()))
+                self._process_page_with_ocr(page, new_doc, page_num)
             
             doc.close()
             
@@ -197,10 +144,106 @@ class IndexerActivities:
             logger.info(f"OCR processing completed. Saved to: {temp_path}")
             return temp_path
             
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError) as e:
             logger.error(f"Error applying OCR to PDF: {e}")
             # Return original PDF path if OCR fails
             return pdf_path
+    
+    def _process_page_with_ocr(self, page, new_doc, page_num):
+        """Process a single page with OCR."""
+        try:
+            import fitz  # PyMuPDF
+            import pytesseract
+            from PIL import Image
+        except ImportError:
+            return
+            
+        # Render page as an image with higher DPI for better OCR
+        pix = page.get_pixmap(dpi=300)
+        img_data = pix.tobytes("png")
+        
+        # Convert to PIL Image for OCR
+        img = Image.open(io.BytesIO(img_data))
+        
+        # Apply OCR using pytesseract
+        try:
+            # Get OCR text from the image
+            ocr_text = pytesseract.image_to_string(img, lang='eng')
+            
+            if ocr_text.strip():
+                self._add_ocr_text_to_page(page, new_doc, ocr_text)
+            else:
+                # If no text found, try PyMuPDF's built-in OCR
+                logger.warning(f"No text found on page {page_num + 1}, trying PyMuPDF OCR")
+                self._try_pymupdf_ocr(page, new_doc, pix)
+            
+        except (OSError, RuntimeError) as ocr_error:
+            logger.error(f"OCR failed for page {page_num + 1}: {ocr_error}")
+            # Insert original page if OCR fails
+            self._insert_original_page(page, new_doc, pix)
+    
+    def _add_ocr_text_to_page(self, page, new_doc, ocr_text):
+        """Add OCR text to a new page."""
+        try:
+            import fitz  # PyMuPDF
+        except ImportError:
+            return
+            
+        # Create a new page with the same dimensions
+        new_page = new_doc.new_page(width=page.rect.width, height=page.rect.height)
+        
+        # Add the OCR text to the page
+        # Split text into lines and add them
+        lines = ocr_text.strip().split('\n')
+        y_position = 50  # Start position
+        line_height = 20
+        
+        for line in lines:
+            if line.strip():
+                new_page.insert_text(
+                    (50, y_position),  # Position
+                    line.strip(),
+                    fontsize=12,
+                    color=(0, 0, 0)  # Black text
+                )
+                y_position += line_height
+        
+        # Insert the processed page
+        new_doc.insert_pdf(
+            fitz.open("pdf", new_page.get_pixmap().pdfocr_tobytes())
+        )
+    
+    def _try_pymupdf_ocr(self, page, new_doc, pix):
+        """Try PyMuPDF's built-in OCR."""
+        try:
+            import fitz  # PyMuPDF
+        except ImportError:
+            return
+            
+        try:
+            ocr_pdf_bytes = pix.pdfocr_tobytes()
+            if ocr_pdf_bytes:
+                temp_doc = fitz.open("pdf", ocr_pdf_bytes)
+                new_doc.insert_pdf(temp_doc)
+                temp_doc.close()
+            else:
+                # If all OCR fails, insert original page
+                self._insert_original_page(page, new_doc, pix)
+        except (OSError, RuntimeError) as ocr_error:
+            logger.warning(f"PyMuPDF OCR failed: {ocr_error}")
+            # Insert original page if OCR fails
+            self._insert_original_page(page, new_doc, pix)
+    
+    def _insert_original_page(self, page, new_doc, pix):
+        """Insert original page if OCR fails."""
+        try:
+            import fitz  # PyMuPDF
+        except ImportError:
+            return
+            
+        new_doc.insert_pdf(
+            fitz.open("pdf", pix.pdfocr_tobytes())
+        )
 
     @activity.defn(name="convert_pdf_to_md")
     async def convert_pdf_to_md(self, tenant: str, pdf_file_name: str) -> str:
@@ -241,10 +284,10 @@ class IndexerActivities:
                 # Clean up the temporary OCR file
                 try:
                     os.unlink(ocr_pdf_path)
-                except Exception as cleanup_error:
+                except OSError as cleanup_error:
                     logging.warning(f"Failed to clean up OCR file {ocr_pdf_path}: {cleanup_error}")
                     
-            except Exception as ocr_error:
+            except (OSError, RuntimeError, ValueError) as ocr_error:
                 logging.error(f"OCR processing failed for {pdf_file_name}: {ocr_error}")
                 logging.info("Falling back to direct markdown conversion without OCR")
                 # Fallback to direct conversion if OCR fails
