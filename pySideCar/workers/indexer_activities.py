@@ -58,55 +58,10 @@ class IndexerActivities:
         
         logger.warning("Tesseract not found. OCR functionality may not work properly.")
 
-    def _is_scanned_pdf(self, pdf_path: str) -> bool:
-        """
-        Check if a PDF is scanned (contains mostly images with little to no text).
-        
-        Args:
-            pdf_path (str): Path to the PDF file
-            
-        Returns:
-            bool: True if the PDF appears to be scanned, False otherwise
-        """
-        try:
-            import fitz  # PyMuPDF
-        except ImportError:
-            logger.error("PyMuPDF not available. Cannot check if PDF is scanned.")
-            return True  # Assume scanned if we can't check
-            
-        try:
-            doc = fitz.open(pdf_path)
-            total_text_length = 0
-            total_pages = len(doc)
-            
-            # Check first few pages for text content
-            pages_to_check = min(3, total_pages)
-            
-            for page_num in range(pages_to_check):
-                page = doc[page_num]
-                text = page.get_text().strip()
-                total_text_length += len(text)
-            
-            doc.close()
-            
-            # If average text per page is very low, likely scanned
-            avg_text_per_page = total_text_length / pages_to_check
-            is_scanned = avg_text_per_page < 50  # Threshold for scanned content
-            
-            logger.info(
-                f"PDF text analysis: {avg_text_per_page:.1f} chars/page, "
-                f"scanned: {is_scanned}"
-            )
-            return is_scanned
-            
-        except (OSError, RuntimeError, ValueError) as e:
-            logger.error(f"Error checking if PDF is scanned: {e}")
-            # If we can't determine, assume it might be scanned and try OCR
-            return True
 
     def _apply_ocr_to_pdf(self, pdf_path: str) -> str:
         """
-        Apply OCR to a scanned PDF and return the path to the OCR-processed PDF.
+        Apply OCR to a scanned PDF using PyMuPDF's built-in OCR.
         
         Args:
             pdf_path (str): Path to the original PDF file
@@ -116,30 +71,33 @@ class IndexerActivities:
         """
         try:
             import fitz  # PyMuPDF
-            import pytesseract
-            from PIL import Image
         except ImportError as import_error:
-            logger.error(f"Required OCR libraries not available: {import_error}")
-            return pdf_path  # Return original PDF if libraries not available
+            logger.error(f"PyMuPDF not available: {import_error}")
+            return pdf_path
             
         try:
             logger.info(f"Applying OCR to PDF: {pdf_path}")
             
             # Open the original PDF
             doc = fitz.open(pdf_path)
-            new_doc = fitz.open()  # New PDF to store OCR-processed pages
             
-            for page_num, page in enumerate(doc):
+            # Apply OCR to each page using PyMuPDF's built-in OCR
+            for page_num in range(len(doc)):
+                page = doc[page_num]
                 logger.info(f"Processing page {page_num + 1}/{len(doc)}")
-                self._process_page_with_ocr(page, new_doc, page_num)
-            
-            doc.close()
+                
+                # Use PyMuPDF's built-in OCR
+                try:
+                    page.get_pixmap().pdfocr_tobytes()
+                    logger.info(f"OCR applied to page {page_num + 1}")
+                except Exception as ocr_error:
+                    logger.warning(f"OCR failed for page {page_num + 1}: {ocr_error}")
             
             # Save the OCR-processed PDF to a temporary file
             temp_fd, temp_path = tempfile.mkstemp(suffix='_ocr.pdf')
             os.close(temp_fd)
-            new_doc.save(temp_path)
-            new_doc.close()
+            doc.save(temp_path)
+            doc.close()
             
             logger.info(f"OCR processing completed. Saved to: {temp_path}")
             return temp_path
@@ -149,107 +107,185 @@ class IndexerActivities:
             # Return original PDF path if OCR fails
             return pdf_path
     
-    def _process_page_with_ocr(self, page, new_doc, page_num):
-        """Process a single page with OCR."""
+    def _extract_text_with_custom_formatting(self, pdf_path: str) -> str:
+        """Extract text using OCR and apply custom markdown formatting."""
         try:
             import fitz  # PyMuPDF
             import pytesseract
             from PIL import Image
-        except ImportError:
-            return
+        except ImportError as import_error:
+            logger.error(f"Required libraries not available: {import_error}")
+            return f"# {os.path.basename(pdf_path)}\n\n*OCR libraries not available.*"
             
-        # Render page as an image with higher DPI for better OCR
-        pix = page.get_pixmap(dpi=300)
-        img_data = pix.tobytes("png")
-        
-        # Convert to PIL Image for OCR
-        img = Image.open(io.BytesIO(img_data))
-        
-        # Apply OCR using pytesseract
         try:
-            # Get OCR text from the image
-            ocr_text = pytesseract.image_to_string(img, lang='eng')
+            logger.info(f"Extracting text with custom formatting from: {pdf_path}")
             
-            if ocr_text.strip():
-                self._add_ocr_text_to_page(page, new_doc, ocr_text)
+            doc = fitz.open(pdf_path)
+            all_text = []
+            
+            for page_num, page in enumerate(doc):
+                logger.info(f"Processing page {page_num + 1}/{len(doc)}")
+                
+                # Render page as high-resolution image
+                pix = page.get_pixmap(dpi=300)
+                img_data = pix.tobytes("png")
+                
+                # Convert to PIL Image for OCR
+                img = Image.open(io.BytesIO(img_data))
+                
+                # Extract text using pytesseract
+                try:
+                    ocr_text = pytesseract.image_to_string(img, lang='eng')
+                    if ocr_text.strip():
+                        # Format the OCR text
+                        formatted_text = self._format_ocr_text(ocr_text.strip())
+                        all_text.append(f"## Page {page_num + 1}\n\n{formatted_text}")
+                except Exception as ocr_error:
+                    logger.warning(f"OCR failed for page {page_num + 1}: {ocr_error}")
+                    continue
+            
+            doc.close()
+            
+            if all_text:
+                # Combine all pages with proper formatting
+                full_text = "\n\n---\n\n".join(all_text)
+                markdown_text = f"# {os.path.basename(pdf_path)}\n\n{full_text}"
+                logger.info(f"Custom OCR extraction successful: {len(markdown_text)} characters")
+                return markdown_text
             else:
-                # If no text found, try PyMuPDF's built-in OCR
-                logger.warning(f"No text found on page {page_num + 1}, trying PyMuPDF OCR")
-                self._try_pymupdf_ocr(page, new_doc, pix)
-            
-        except (OSError, RuntimeError) as ocr_error:
-            logger.error(f"OCR failed for page {page_num + 1}: {ocr_error}")
-            # Insert original page if OCR fails
-            self._insert_original_page(page, new_doc, pix)
+                logger.error("No text could be extracted from any page")
+                return f"# {os.path.basename(pdf_path)}\n\n*No text could be extracted from this document.*"
+                
+        except Exception as e:
+            logger.error(f"Custom OCR extraction failed: {e}")
+            return f"# {os.path.basename(pdf_path)}\n\n*OCR extraction failed: {e}*"
     
-    def _add_ocr_text_to_page(self, page, new_doc, ocr_text):
-        """Add OCR text to a new page."""
-        try:
-            import fitz  # PyMuPDF
-        except ImportError:
-            return
+    def _format_ocr_text(self, text: str) -> str:
+        """Format OCR text with proper markdown structure."""
+        if not text or not text.strip():
+            return text
             
-        # Create a new page with the same dimensions
-        new_page = new_doc.new_page(width=page.rect.width, height=page.rect.height)
+        lines = text.strip().split('\n')
+        formatted_lines = []
         
-        # Add the OCR text to the page
-        # Split text into lines and add them
-        lines = ocr_text.strip().split('\n')
-        y_position = 50  # Start position
-        line_height = 20
-        
-        for line in lines:
-            if line.strip():
-                new_page.insert_text(
-                    (50, y_position),  # Position
-                    line.strip(),
-                    fontsize=12,
-                    color=(0, 0, 0)  # Black text
-                )
-                y_position += line_height
-        
-        # Insert the processed page
-        new_doc.insert_pdf(
-            fitz.open("pdf", new_page.get_pixmap().pdfocr_tobytes())
-        )
-    
-    def _try_pymupdf_ocr(self, page, new_doc, pix):
-        """Try PyMuPDF's built-in OCR."""
-        try:
-            import fitz  # PyMuPDF
-        except ImportError:
-            return
+        for i, line in enumerate(lines):
+            line = line.strip()
+            if not line:
+                formatted_lines.append("")
+                continue
             
-        try:
-            ocr_pdf_bytes = pix.pdfocr_tobytes()
-            if ocr_pdf_bytes:
-                temp_doc = fitz.open("pdf", ocr_pdf_bytes)
-                new_doc.insert_pdf(temp_doc)
-                temp_doc.close()
+            # Detect headings and sub-headings
+            if self._is_main_heading(line, lines, i):
+                formatted_lines.append(f"# {line}")
+            elif self._is_sub_heading(line, lines, i):
+                formatted_lines.append(f"## {line}")
+            elif self._is_section_heading(line, lines, i):
+                formatted_lines.append(f"### {line}")
+            # Detect bold/important text
+            elif self._is_bold_text(line):
+                formatted_lines.append(f"**{line}**")
+            # Detect list items
+            elif self._is_list_item(line):
+                formatted_lines.append(f"- {line}")
+            # Detect numbered lists
+            elif self._is_numbered_item(line):
+                formatted_lines.append(f"1. {line}")
+            # Regular text
             else:
-                # If all OCR fails, insert original page
-                self._insert_original_page(page, new_doc, pix)
-        except (OSError, RuntimeError) as ocr_error:
-            logger.warning(f"PyMuPDF OCR failed: {ocr_error}")
-            # Insert original page if OCR fails
-            self._insert_original_page(page, new_doc, pix)
+                formatted_lines.append(line)
+        
+        return '\n'.join(formatted_lines)
     
-    def _insert_original_page(self, page, new_doc, pix):
-        """Insert original page if OCR fails."""
-        try:
-            import fitz  # PyMuPDF
-        except ImportError:
-            return
-            
-        new_doc.insert_pdf(
-            fitz.open("pdf", pix.pdfocr_tobytes())
-        )
+    def _is_main_heading(self, line: str, all_lines: list, current_index: int) -> bool:
+        """Detect main headings (H1)."""
+        patterns = [
+            # Very short, all caps titles
+            len(line) < 30 and line.isupper() and len(line.split()) <= 4,
+            # Common main heading keywords
+            any(keyword in line.lower() for keyword in [
+                'title', 'abstract', 'executive summary', 'introduction',
+                'conclusion', 'summary', 'overview'
+            ]),
+            # Short lines that are likely main titles
+            len(line) < 50 and line.isupper() and len(line.split()) <= 6
+        ]
+        return any(patterns)
+    
+    def _is_sub_heading(self, line: str, all_lines: list, current_index: int) -> bool:
+        """Detect sub-headings (H2)."""
+        patterns = [
+            # Medium length, all caps
+            len(line) < 60 and line.isupper() and len(line.split()) <= 8,
+            # Common sub-heading keywords
+            any(keyword in line.lower() for keyword in [
+                'chapter', 'section', 'part', 'methodology', 'background',
+                'results', 'discussion', 'analysis', 'findings', 'recommendations'
+            ]),
+            # Numbered sections
+            any(line.startswith(f"{i}.") for i in range(1, 20)) and len(line) < 80,
+            # Lines followed by empty lines (common heading pattern)
+            current_index < len(all_lines) - 1 and not all_lines[current_index + 1].strip()
+        ]
+        return any(patterns)
+    
+    def _is_section_heading(self, line: str, all_lines: list, current_index: int) -> bool:
+        """Detect section headings (H3)."""
+        patterns = [
+            # Shorter, all caps phrases
+            len(line) < 40 and line.isupper() and len(line.split()) <= 5,
+            # Common section keywords
+            any(keyword in line.lower() for keyword in [
+                'subsection', 'topic', 'area', 'aspect', 'component',
+                'element', 'factor', 'issue', 'point', 'item'
+            ]),
+            # Lettered sections (A., B., C., etc.)
+            len(line) > 2 and line[0].isupper() and line[1] == '.' and len(line) < 60
+        ]
+        return any(patterns)
+    
+    def _is_bold_text(self, line: str) -> bool:
+        """Detect bold/important text."""
+        patterns = [
+            # Short all caps phrases
+            len(line) < 30 and line.isupper() and len(line.split()) <= 4,
+            # Common bold keywords
+            any(keyword in line.lower() for keyword in [
+                'note:', 'warning:', 'important:', 'caution:', 'tip:',
+                'definition:', 'example:', 'figure:', 'table:', 'equation:',
+                'key point:', 'remember:', 'attention:', 'alert:'
+            ])
+        ]
+        return any(patterns)
+    
+    def _is_list_item(self, line: str) -> bool:
+        """Detect list items."""
+        patterns = [
+            # Starts with bullet-like characters
+            line.startswith(('•', '◦', '▪', '▫', '-', '*')),
+            # Starts with lowercase letter followed by period
+            len(line) > 2 and line[0].islower() and line[1] == '.',
+            # Indented text (starts with spaces)
+            line.startswith('  ') and not line.startswith('    ')
+        ]
+        return any(patterns)
+    
+    def _is_numbered_item(self, line: str) -> bool:
+        """Detect numbered list items."""
+        patterns = [
+            # Starts with number followed by period
+            any(line.startswith(f"{i}.") for i in range(1, 100)),
+            # Starts with number followed by parenthesis
+            any(line.startswith(f"{i})") for i in range(1, 100)),
+            # Roman numerals
+            any(line.startswith(f"{num}.") for num in ['i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii', 'viii', 'ix', 'x'])
+        ]
+        return any(patterns)
 
     @activity.defn(name="convert_pdf_to_md")
     async def convert_pdf_to_md(self, tenant: str, pdf_file_name: str) -> str:
         """
         Convert a PDF file stored in Azure Blob Storage to Markdown format.
-        Automatically detects scanned PDFs and applies OCR if needed.
+        Uses pymupdf4llm with OCR fallback if needed.
 
         Args:
             tenant (str): The tenant identifier.
@@ -269,13 +305,20 @@ class IndexerActivities:
         # Download the PDF file from Azure Blob Storage
         pdf_file_path = self._azure_storage.download_file(tenant, pdf_file_name)
 
-        # Check if the PDF is scanned and needs OCR
-        is_scanned = self._is_scanned_pdf(pdf_file_path)
+        # First, try direct conversion with pymupdf4llm
+        logging.info(f"Converting {pdf_file_name} to Markdown using pymupdf4llm")
+        md_text = pymupdf4llm.to_markdown(pdf_file_path)
         
-        if is_scanned:
-            logging.info(f"PDF {pdf_file_name} appears to be scanned, applying OCR")
+        # Check if markdown conversion resulted in empty content
+        md_length = len(md_text) if md_text else 0
+        logging.info(f"pymupdf4llm.to_markdown extracted {md_length} characters for {pdf_file_name}")
+        
+        if not md_text or not md_text.strip():
+            logging.warning(f"pymupdf4llm.to_markdown returned empty content for {pdf_file_name}")
+            logging.info("Applying OCR and retrying with pymupdf4llm")
+            
             try:
-                # Apply OCR to the scanned PDF
+                # Apply OCR to the PDF
                 ocr_pdf_path = self._apply_ocr_to_pdf(pdf_file_path)
                 
                 # Use the OCR-processed PDF for markdown conversion
@@ -287,15 +330,18 @@ class IndexerActivities:
                 except OSError as cleanup_error:
                     logging.warning(f"Failed to clean up OCR file {ocr_pdf_path}: {cleanup_error}")
                     
+                if md_text and md_text.strip():
+                    logging.info(f"OCR + pymupdf4llm successful for {pdf_file_name}")
+                else:
+                    logging.error(f"OCR + pymupdf4llm also returned empty content for {pdf_file_name}")
+                    # Try custom OCR text extraction with formatting
+                    logging.info("Attempting custom OCR text extraction with formatting")
+                    md_text = self._extract_text_with_custom_formatting(pdf_file_path)
+                    
             except (OSError, RuntimeError, ValueError) as ocr_error:
                 logging.error(f"OCR processing failed for {pdf_file_name}: {ocr_error}")
-                logging.info("Falling back to direct markdown conversion without OCR")
-                # Fallback to direct conversion if OCR fails
-                md_text = pymupdf4llm.to_markdown(pdf_file_path)
-        else:
-            logging.info(f"PDF {pdf_file_name} contains text, converting directly to Markdown")
-            # Convert the PDF to Markdown directly
-            md_text = pymupdf4llm.to_markdown(pdf_file_path)
+                # Return a placeholder if all methods fail
+                md_text = f"# {pdf_file_name}\n\n*PDF content could not be extracted. This may be a scanned document or have complex formatting.*"
 
         # Upload the markdown content to Azure Blob Storage
         md_file_name = pdf_file_name.replace(".pdf", ".md")

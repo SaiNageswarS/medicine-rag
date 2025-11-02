@@ -50,12 +50,16 @@ func (s *Activities) ChunkMarkdown(ctx context.Context, tenant, sourceUri, markd
 
 			// generate a concise title – any error handled below
 			titleBodyInputLen := min(len(sec.body), maxTitleInputBytes)
+
+			logger.Info("Generating section title", zap.String("sectionPath", strings.Join(sec.path, " | ")))
 			title, _ := async.Await(prompts.GenerateSectionTitle(
 				ctx, sourceUri,
 				sec.path[len(sec.path)-1], sec.body[:titleBodyInputLen], s.ccfg.TitleGenModel,
 			))
 			if title == "" || len(title) > 100 {
 				title = sec.path[len(sec.path)-1]
+			} else {
+				logger.Info("Generated section title", zap.String("sectionPath", strings.Join(sec.path, " | ")), zap.String("title", title))
 			}
 
 			return db.ChunkModel{

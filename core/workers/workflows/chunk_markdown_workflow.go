@@ -11,13 +11,13 @@ import (
 
 func ChunkMarkdownWorkflow(ctx workflow.Context, input ChunkMarkdownWorkflowInput) error {
 	pyActivityOpts := workflow.ActivityOptions{
-		StartToCloseTimeout: time.Minute * 30,
+		StartToCloseTimeout: time.Hour * 10,
 		TaskQueue:           "searchCorePySideCar",
 	}
 	pyCtx := workflow.WithActivityOptions(ctx, pyActivityOpts)
 
 	activityOpts := workflow.ActivityOptions{
-		StartToCloseTimeout: time.Minute * 30,
+		StartToCloseTimeout: time.Hour * 10,
 	}
 	ctx = workflow.WithActivityOptions(ctx, activityOpts)
 
