@@ -313,7 +313,7 @@ class IndexerActivities:
         md_length = len(md_text) if md_text else 0
         logging.info(f"pymupdf4llm.to_markdown extracted {md_length} characters for {pdf_file_name}")
         
-        if not md_text or not md_text.strip():
+        if md_length < 100:
             logging.warning(f"pymupdf4llm.to_markdown returned empty content for {pdf_file_name}")
             logging.info("Applying OCR and retrying with pymupdf4llm")
             
