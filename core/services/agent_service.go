@@ -5,8 +5,8 @@ import (
 
 	"github.com/SaiNageswarS/agent-boot/agentboot"
 	"github.com/SaiNageswarS/agent-boot/llm"
+	"github.com/SaiNageswarS/agent-boot/memory"
 	"github.com/SaiNageswarS/agent-boot/schema"
-	"github.com/SaiNageswarS/agent-boot/session"
 	"github.com/SaiNageswarS/go-api-boot/auth"
 	"github.com/SaiNageswarS/go-api-boot/embed"
 	"github.com/SaiNageswarS/go-api-boot/odm"
@@ -36,7 +36,7 @@ func (s *AgentService) Execute(req *schema.GenerateAnswerRequest, stream grpc.Se
 	chunkRepository := odm.CollectionOf[db.ChunkModel](s.mongo, tenant)
 	vectorRepository := odm.CollectionOf[db.ChunkAnnModel](s.mongo, tenant)
 
-	sessionRepository := odm.CollectionOf[session.SessionModel](s.mongo, tenant)
+	conversationRepo := odm.CollectionOf[memory.Conversation](s.mongo, tenant)
 
 	search := mcp.NewSearchTool(chunkRepository, vectorRepository, s.embedder)
 
@@ -52,10 +52,10 @@ func (s *AgentService) Execute(req *schema.GenerateAnswerRequest, stream grpc.Se
 	agent := agentboot.NewAgentBuilder().
 		WithMiniModel(llm.NewAnthropicClient("claude-3-5-haiku-20241022")).
 		WithBigModel(llm.NewAnthropicClient("claude-3-5-haiku-20241022")).
+		WithToolSelector(llm.NewGroqClient("openai/gpt-oss-20b")).
 		WithSystemPrompt("You are an assistant for Qualified Homeopathic Physicians. You are provided with medicine-rag tool to query medical knowledge database. Use ONLY INFORMATION from medicine-rag to answer the User Query.").
 		AddTool(mcp).
-		WithSessionCollection(sessionRepository).
-		WithMaxSessionMessages(5).
+		WithConversationManager(conversationRepo, 5).
 		Build()
 
 	streamReporter := &agentboot.GrpcProgressReporter{Stream: stream}
