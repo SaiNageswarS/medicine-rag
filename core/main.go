@@ -56,7 +56,6 @@ func main() {
 		RegisterTemporalActivity(activities.ProvideActivities).
 		RegisterTemporalWorkflow(workflows.ChunkMarkdownWorkflow).
 		RegisterTemporalWorkflow(workflows.InitTenantWorkflow).
-		RegisterTemporalWorkflow(workflows.PdfHandlerWorkflow).
 		RegisterTemporalWorkflow(workflows.EmbedChunksWorkflow).
 
 		// Register gRPC service impls
